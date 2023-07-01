@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  ros_ml_container:
+    build: .
+    image: ros_ml_container:local
+    ports:
+      - 8888:8888 # Jupyterlab GUI
+    network_mode: host # TODO: Quick and dirty
+    volumes:
+      - ./app:/app
+      - ../tinysim-2d:/opt/ros2_ws/src/tinysim-2d
+      - ./lab:/root/.jupyter/lab
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - "DISPLAY=$DISPLAY"
+      - "LIBGL_ALWAYS_SOFTWARE=1"
+    command: ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+
+  foxglove_ui:
+    image: ghcr.io/foxglove/studio:latest
+    ports:
+      - 8080:8080 # Foxglove GUI
+    network_mode: host # TODO: Quick and dirty
+
+# Alternative networking: Get ml container ip using docker inspect and connect to ros bridge on ml_ip:9090 from the foxglove ui
