@@ -10,7 +10,7 @@ import open3d as o3d
 
 from util import mapLoader, conversion
 
-def movementUpdate(robot, newPose, cmd_vel):
+def movementUpdate(robot, pose, raycastingScene, cmd_vel):
     """Performs robot movement based on received cmd_vel messages.
     
     Parameters
@@ -19,6 +19,8 @@ def movementUpdate(robot, newPose, cmd_vel):
             Contains robot and laserscanner information
     newPose : array_like
             Contains current robot pose (X, Y, theta)
+    raycastingScene: o3d.t.geometry.RaycastingScene
+            Contains 3D scene used for collision check and simulated scans
     cmv_vel : Twist
             Twist message containing received cmd_vel
             
@@ -26,10 +28,12 @@ def movementUpdate(robot, newPose, cmd_vel):
     -------
     array_like
             X, Y, Theta of new pose
-    """    
-    # Update robot pose in given time interval
+    """
+    # Create placeholder for new pose
+    newPose = np.array(pose, dtype=np.float32)
     if cmd_vel != None:
-        # TODO: more accurate motion model
+        ## Apply motion model
+        # TODO: more accurate motion model with error
         # dx = cos(theta') * x' * dt
         # dy = sin(theta') * x' * dt
         # dtheta = theta' * dt
@@ -38,9 +42,37 @@ def movementUpdate(robot, newPose, cmd_vel):
                 np.cos(newPose[2]) * cmd_vel.linear.x * robot["dt"],
                 np.sin(newPose[2]) * cmd_vel.linear.x * robot["dt"],
                 cmd_vel.angular.z * robot["dt"]
-            ]
+            ],
+            dtype=np.float32
         )
-       
+    ## Check for collision with environment and prevent update in case of collision
+    #print("pose: {}, newPose: {}".format(self.pose, newPose))
+
+    #xyMovement = np.array(newPose[:2], dtype=np.float32) - np.array(self.pose[:2], dtype=np.float32)
+    #print("xyMovement: {}".format(xyMovement))
+
+    # TODO: Prevent the robot from moving through walls
+    # Cast a ray from current pose to the new pose
+    collisionRay = np.expand_dims(
+        np.hstack(
+            (
+                pose[:2],
+                np.full(1, robot["z_height"]),
+                (np.array(newPose[:2]) - np.array(pose[:2])),
+                np.full(1, 0)
+            )
+        ),
+        axis=0
+    )
+    rayTensor = o3d.core.Tensor(collisionRay, dtype = o3d.core.Dtype.Float32)
+    raycastResult = raycastingScene.cast_rays(rayTensor)
+    # Only apply movement update if distance to hit geometry greater than the distance between the two poses
+    travelDistance = np.linalg.norm(np.array(newPose[0] - pose[0]))
+    #print("raycastResult: {}, travelDistance: {}".format(raycastResult["t_hit"].numpy().ravel(), travelDistance))
+    # TODO: figure out why changing update rate affects how close to a wall the robto gets when colliding
+    if raycastResult["t_hit"].numpy().ravel() - travelDistance < 1.0: 
+        newPose = np.array(pose, dtype=np.float32)
+    
     return newPose
 
 def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.003):
@@ -50,15 +82,19 @@ def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.003):
     ----------
     robot : {"name", "num_scans", "z_height", "angle_min", "angle_max", "dt"}
             Contains robot and laserscanner information
+    pose : array_like
+            Contains 2D robot pose (x, y, theta)
+    raycastingScene: o3d.t.geometry.RaycastingScene
+            Contains 3D scene used for collision check and simulated scans
             
     Returns
     -------
-    array_like
-            Detected distances
+    sensor_msgs.msg.LaserScan
+            LaserScan message resulting from scene and robot pose
     """
     # Create simulated laserscan using open3d raycasts
     # TODO: add rotation to mount the scanner in different poses onto the robot
-    # TODO: add motion model error
+    # TODO: skip update if robot has not moved enough
     
     angle_min = 0
     angle_max = 2*np.pi
@@ -146,11 +182,9 @@ class simNode(rclpy.node.Node):
         Parameters
         ----------
         robot : {"name", "initial_pose", "angle_min", "angle_max", "num_scans", "z_height", "dt" }
-                Contains robot and laserscanner information
-                
+                Contains robot and laserscanner information       
         mapVertices: array_like
                 (n,3) np.float32 array containing vertex points in world coordinates for the raycasting scene
-                
         mabTriangles: array_like
                 (n,3) np.uint32 array containing triangle indices that create the polygons from mapVertices
         """
@@ -195,14 +229,7 @@ class simNode(rclpy.node.Node):
         """Timer callback performing time-discrete simulation updates
         """
         # Perform movement update
-        newPose = movementUpdate(self.robot, self.pose, self.latestCommand)
-        self.pose = newPose
-        # TODO: Check for collision over the traveled distance and do not perform update if collision occurs
-        # collisionray = np.hstack(((newpose[:2] - self.pose[:2]), np.full(1, 11.0)))
-        # travelDistance = np.linalg.norm(newpose[:2] - self.pose[:2])
-        # if collision distance < travelDistance: prevent update
-        
-        self.pose = movementUpdate(self.robot, self.pose, self.latestCommand)
+        self.pose = movementUpdate(self.robot, self.pose, self.raycastingScene, self.latestCommand)
         stamp = self.get_clock().now().to_msg()
               
         # Publish transform
@@ -224,7 +251,7 @@ if __name__=="__main__":
         "angle_max": 2*np.pi,
         "num_scans": 360,
         "z_height": 0.2,
-        "dt": 0.1,
+        "dt": 0.01,
         "map_file": "/app/map.yaml",
         "point_cloud": None,
     }
