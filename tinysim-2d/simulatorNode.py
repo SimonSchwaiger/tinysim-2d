@@ -26,11 +26,13 @@ def movementUpdate(robot, pose, raycastingScene, cmd_vel):
             
     Returns
     -------
-    array_like
-            X, Y, Theta of new pose
+    tuple
+            array_like containing X, Y, Theta of new pose
+            float containing travelled distance
     """
     # Create placeholder for new pose
     newPose = np.array(pose, dtype=np.float32)
+    travelDistance = 0 
     if cmd_vel != None:
         ## Apply motion model
         # TODO: more accurate motion model with error
@@ -45,37 +47,34 @@ def movementUpdate(robot, pose, raycastingScene, cmd_vel):
             ],
             dtype=np.float32
         )
-    ## Check for collision with environment and prevent update in case of collision
-    #print("pose: {}, newPose: {}".format(self.pose, newPose))
-
-    #xyMovement = np.array(newPose[:2], dtype=np.float32) - np.array(self.pose[:2], dtype=np.float32)
-    #print("xyMovement: {}".format(xyMovement))
-
-    # TODO: Prevent the robot from moving through walls
-    # Cast a ray from current pose to the new pose
-    collisionRay = np.expand_dims(
+        # Track travelled distance
+        travelDistance = abs(cmd_vel.linear.x*robot["dt"])
+    ## Check for collision with environment using the raycasting scene and prevent update in case of collision
+    # TODO: extract the collision information from the last scan to save on performance
+    robotPosition3D = np.expand_dims(
         np.hstack(
             (
-                pose[:2],
-                np.full(1, robot["z_height"]),
-                (np.array(newPose[:2]) - np.array(pose[:2])),
-                np.full(1, 0)
+                newPose[:2],
+                np.full(1, robot["z_height"])
             )
         ),
         axis=0
     )
-    rayTensor = o3d.core.Tensor(collisionRay, dtype = o3d.core.Dtype.Float32)
-    raycastResult = raycastingScene.cast_rays(rayTensor)
-    # Only apply movement update if distance to hit geometry greater than the distance between the two poses
-    travelDistance = np.linalg.norm(np.array(newPose[0] - pose[0]))
-    #print("raycastResult: {}, travelDistance: {}".format(raycastResult["t_hit"].numpy().ravel(), travelDistance))
-    # TODO: figure out why changing update rate affects how close to a wall the robto gets when colliding
-    if raycastResult["t_hit"].numpy().ravel() - travelDistance < 1.0: 
-        newPose = np.array(pose, dtype=np.float32)
     
-    return newPose
+    wallDistance = raycastingScene.compute_distance(
+        o3d.core.Tensor(
+            robotPosition3D,
+            dtype = o3d.core.Dtype.Float32
+        )
+    )
+    
+    if wallDistance < 0.05:
+        newPose = np.array(pose, dtype=np.float32)
+        travelDistance = 0      
+    
+    return newPose, travelDistance
 
-def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.003):
+def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
     """Determines current scan using raycasting
     
     Parameters
@@ -228,8 +227,18 @@ class simNode(rclpy.node.Node):
     def timerCallback(self):
         """Timer callback performing time-discrete simulation updates
         """
+        #TODO: Refactor collision:
+        # Perform motion update regardless
+        # Store last scan
+        # Compute scan for new pose
+        # Check, wheter or not any of the ranges in the new scan is too close
+        # Send either current or last scan-pose pair again using new error
+        
+        # Required: Move adding scan error from scannerUpdate to the callback
+        # Nice for Performance: Only perform update, if travelDistance from movementUpdate is significant
+        
         # Perform movement update
-        self.pose = movementUpdate(self.robot, self.pose, self.raycastingScene, self.latestCommand)
+        self.pose, _ = movementUpdate(self.robot, self.pose, self.raycastingScene, self.latestCommand)
         stamp = self.get_clock().now().to_msg()
               
         # Publish transform
@@ -251,7 +260,7 @@ if __name__=="__main__":
         "angle_max": 2*np.pi,
         "num_scans": 360,
         "z_height": 0.2,
-        "dt": 0.01,
+        "dt": 0.1,
         "map_file": "/app/map.yaml",
         "point_cloud": None,
     }
