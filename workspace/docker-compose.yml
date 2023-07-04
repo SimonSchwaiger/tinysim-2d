@@ -15,7 +15,7 @@ services:
     environment:
       - "DISPLAY=$DISPLAY"
       - "LIBGL_ALWAYS_SOFTWARE=1"
-    command: ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+    command: ros2 launch foxglove_bridge foxglove_bridge_launch.xml #ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 
   foxglove_ui:
     image: ghcr.io/foxglove/studio:latest
