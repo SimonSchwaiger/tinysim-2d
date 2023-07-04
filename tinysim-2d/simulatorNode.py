@@ -8,6 +8,8 @@ from visualization_msgs.msg import Marker
 import numpy as np
 import open3d as o3d
 
+import copy
+
 from util import mapLoader, conversion
 
 def movementUpdate(robot, pose, raycastingScene, cmd_vel):
@@ -28,11 +30,13 @@ def movementUpdate(robot, pose, raycastingScene, cmd_vel):
     -------
     tuple
             array_like containing X, Y, Theta of new pose
-            float containing travelled distance
+            float containing travelled distance [m]
+            float containing rotation distance [rad]
     """
     # Create placeholder for new pose
     newPose = np.array(pose, dtype=np.float32)
-    travelDistance = 0 
+    travelDistance = 0
+    rotationDistance = 0
     if cmd_vel != None:
         ## Apply motion model
         # TODO: more accurate motion model with error
@@ -49,30 +53,9 @@ def movementUpdate(robot, pose, raycastingScene, cmd_vel):
         )
         # Track travelled distance
         travelDistance = abs(cmd_vel.linear.x*robot["dt"])
-    ## Check for collision with environment using the raycasting scene and prevent update in case of collision
-    # TODO: extract the collision information from the last scan to save on performance
-    robotPosition3D = np.expand_dims(
-        np.hstack(
-            (
-                newPose[:2],
-                np.full(1, robot["z_height"])
-            )
-        ),
-        axis=0
-    )
+        rotationDistance = abs(cmd_vel.angular.z*robot["dt"])
     
-    wallDistance = raycastingScene.compute_distance(
-        o3d.core.Tensor(
-            robotPosition3D,
-            dtype = o3d.core.Dtype.Float32
-        )
-    )
-    
-    if wallDistance < 0.05:
-        newPose = np.array(pose, dtype=np.float32)
-        travelDistance = 0      
-    
-    return newPose, travelDistance
+    return newPose, travelDistance, rotationDistance
 
 def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
     """Determines current scan using raycasting
@@ -92,9 +75,7 @@ def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
             LaserScan message resulting from scene and robot pose
     """
     # Create simulated laserscan using open3d raycasts
-    # TODO: add rotation to mount the scanner in different poses onto the robot
-    # TODO: skip update if robot has not moved enough
-    
+    # TODO: add rotation to mount the scanner in different poses onto the robot   
     angle_min = 0
     angle_max = 2*np.pi
     num_scans = 360
@@ -123,8 +104,6 @@ def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
     rays = np.array(rayList, dtype=np.float32)
     rayTensor = o3d.core.Tensor(rays, dtype = o3d.core.Dtype.Float32)
     raycastResult = raycastingScene.cast_rays(rayTensor)
-    # Add gaussian noise using numpy
-    noise = np.random.normal(0.0, noiseStd, size=len(raycastResult["t_hit"]))
     
     # Format laserscan message
     scan = LaserScan()
@@ -136,7 +115,7 @@ def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
     scan.scan_time = robot["dt"]
     scan.range_min = 0.01
     scan.range_max = 7.0
-    scan.ranges = (raycastResult["t_hit"].numpy() + noise).tolist()
+    scan.ranges = (raycastResult["t_hit"].numpy()).tolist()
     
     return scan
 
@@ -189,9 +168,10 @@ class simNode(rclpy.node.Node):
         """
         super().__init__("{}_sim_scene".format(robot["name"]))
         
-        # Robot config
+        # Robot config and latest scan
         self.pose = robot["initial_pose"]
         self.robot = robot
+        self.scan = LaserScan()
         
         # Raycasting scene and geometry
         self.raycastingScene = o3d.t.geometry.RaycastingScene()
@@ -238,16 +218,35 @@ class simNode(rclpy.node.Node):
         # Nice for Performance: Only perform update, if travelDistance from movementUpdate is significant
         
         # Perform movement update
-        self.pose, _ = movementUpdate(self.robot, self.pose, self.raycastingScene, self.latestCommand)
+        newPose, travelDistance, rotationDistance = movementUpdate(self.robot, self.pose, self.raycastingScene, self.latestCommand)
+        
+        # Only perform scan update if robot has moved
+        if travelDistance > 0 or rotationDistance > 0 or len(self.scan.ranges) == 0:
+            newScan = scannerUpdate(self.robot, newPose, self.raycastingScene)
+        else:
+            newScan = self.scan
+        
+        # Only update pose and scan if robot is not too close to a wall
+        #TODO better deal with lower update rates -> partial movement based on wall distance
+        if np.amin(np.array(newScan.ranges)) > self.robot["robot_base_radius"]:
+            self.pose = newPose
+            self.scan = newScan
+        
+        # Create instance of published scan and add scanner noise
+        noiseStd = 0.005
+        scan = copy.deepcopy(self.scan)
+        scanNoise = np.random.normal(0.0, noiseStd, size=self.robot["num_scans"])
+        scan.ranges = (np.array(scan.ranges) + scanNoise).tolist()
+        
+        ## Publish transform and scan
         stamp = self.get_clock().now().to_msg()
-              
+        
         # Publish transform
         transform = pose2transform(self.robot, self.pose)
         transform.header.stamp = stamp
         self.tfPub.sendTransform(transform)
-
-        # Perform scan update
-        scan = scannerUpdate(self.robot, self.pose, self.raycastingScene)
+        
+        # Publish scan
         scan.header.stamp = stamp
         self.scanPub.publish(scan)
         
@@ -256,11 +255,12 @@ if __name__=="__main__":
     robot = {
         "name": "turtle1",
         "initial_pose": [0,0,0],
+        "robot_base_radius": 0.1,
         "angle_min": 0.0,
         "angle_max": 2*np.pi,
         "num_scans": 360,
         "z_height": 0.2,
-        "dt": 0.1,
+        "dt": 0.01,
         "map_file": "/app/map.yaml",
         "point_cloud": None,
     }
