@@ -56,7 +56,7 @@ def euler2quaternion(ai, aj, ak):
 
 ## Convert between ROS and O3D pointclouds
 # Inspired by but heavily modified: https://github.com/felixchenfy/open3d_ros_pointcloud_conversion/blob/master/lib_cloud_conversion_between_Open3D_and_ROS.py
-def pcl2o3d(rosCloud):
+def pcl2o3dCloud(rosCloud):
     """Converts a ROS PointCloud2 to Open3D pointcloud (with colour)
     """
     # Pull data from ROS cloud. We populate a numpy array of type obj for fancy indexing without casting datatypes
@@ -85,7 +85,7 @@ def pcl2o3d(rosCloud):
     # TODO: Add optional normals info
     return o3dCloud
 
-def o3d2pcl(o3dCloud, frame_id="cloud"):
+def o3dCloud2pcl(o3dCloud, frame_id="cloud"):
     """Converts an Open3D pointcloud to a ROS PointCloud2 (with colour)
     
     Parameters
@@ -125,7 +125,7 @@ def o3d2pcl(o3dCloud, frame_id="cloud"):
     header.frame_id = frame_id
     return point_cloud2.create_cloud(header, fields, points)
 
-def formatROSMeshMarker(vertices, triangles, robotName=""):
+def mesh2ROSMeshMarker(vertices, triangles, robotName=""):
     """Creates a ROS visualisation Marker based on given vertices and triangles
     
     Parameters

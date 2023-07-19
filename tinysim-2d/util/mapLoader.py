@@ -113,7 +113,7 @@ def process2DPoints(contourPoints):
     # Return vertices and triangles
     return vertices, triangles
 
-def reconstruct2dMap(inFile):
+def reconstruct2DMap(inFile):
     """Creates vertices and triangles of a 3D mesh representing a 2D ROS map.
     
     Parameters
@@ -178,4 +178,4 @@ def reconstruct2dMap(inFile):
         mapTriangles = np.vstack((mapTriangles, triangles)) if mapTriangles.size else triangles
     
     # Make sure vertices and triangles are of correct dtype when returning
-    return mapVertices.astype(np.float32), mapTriangles.astype(np.uint32)
+    return mapVertices.astype(np.float32), mapTriangles.astype(np.int32)

@@ -12,6 +12,19 @@ import copy
 
 from util import mapLoader, conversion
 
+def getParamName(param, robot):
+    """Properly formats a parameter within the robot's optional namespace
+    
+    Parameters
+    ----------
+    param:  string
+            Parameter name
+    robot : {"dt"}
+            Contains robot and laserscanner information
+    """
+    if robot["name"] == "": return param
+    else: return "{}/{}".format(robot["name"], param)
+
 def movementUpdate(robot, pose, raycastingScene, cmd_vel):
     """Performs robot movement based on received cmd_vel messages.
     
@@ -40,6 +53,7 @@ def movementUpdate(robot, pose, raycastingScene, cmd_vel):
     if cmd_vel != None:
         ## Apply motion model
         # TODO: more accurate motion model with error
+        # TODO: Verify that the motion model is correct across multiple update frequencies
         # dx = cos(theta') * x' * dt
         # dy = sin(theta') * x' * dt
         # dtheta = theta' * dt
@@ -75,7 +89,8 @@ def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
             LaserScan message resulting from scene and robot pose
     """
     # Create simulated laserscan using open3d raycasts
-    # TODO: add rotation to mount the scanner in different poses onto the robot   
+    # TODO: add rotation to mount the scanner in different poses onto the robot
+    # TODO: decouple raycast from laserscan message generation to make different poses and 3d scans easily possible
     angle_min = 0
     angle_max = 2*np.pi
     num_scans = 360
@@ -105,9 +120,9 @@ def scannerUpdate(robot, pose, raycastingScene, noiseStd=0.005):
     rayTensor = o3d.core.Tensor(rays, dtype = o3d.core.Dtype.Float32)
     raycastResult = raycastingScene.cast_rays(rayTensor)
     
-    # Format laserscan message
+    # Format laserscan message. handle tf2 not allowing backslashed to preceed frame names
     scan = LaserScan()
-    scan.header.frame_id = "{}/base_link".format(robot["name"])
+    scan.header.frame_id = getParamName("base_link", robot)
     scan.angle_min = robot["angle_min"]
     scan.angle_max = robot["angle_max"]
     scan.angle_increment = increment
@@ -136,8 +151,8 @@ def pose2transform(robot, pose):
     """
     # Create message and fill in time and position
     t = TransformStamped()
-    t.header.frame_id = "{}/odom".format(robot["name"])
-    t.child_frame_id = "{}/base_link".format(robot["name"])
+    t.header.frame_id = getParamName("odom", robot) #"{}/odom".format(robot["name"])
+    t.child_frame_id = getParamName("base_link", robot) #"{}/base_link".format(robot["name"])
     t.transform.translation.x = float(pose[0])
     t.transform.translation.y = float(pose[1])
     t.transform.translation.z = 0.0
@@ -175,12 +190,18 @@ class simNode(rclpy.node.Node):
         
         # Raycasting scene and geometry
         self.raycastingScene = o3d.t.geometry.RaycastingScene()
+        
         # Add mesh to scene. We don't store the mesh id because we don't care what the raycast actually hit
-        meshID = self.raycastingScene.add_triangles(o3d.core.Tensor(mapVertices), o3d.core.Tensor(mapTriangles))
+        #meshID = self.raycastingScene.add_triangles(o3d.core.Tensor(mapVertices), o3d.core.Tensor(mapTriangles))
+        mesh = o3d.t.geometry.TriangleMesh(o3d.core.Device("CPU:0"))
+        mesh.vertex.positions = o3d.core.Tensor(mapVertices)
+        mesh.triangle.indices = o3d.core.Tensor(mapTriangles) #.astype(np.int32))
+        newMesh = mesh.fill_holes()
+        meshID = self.raycastingScene.add_triangles(mesh)
         
         # Visualise mesh in ROS as mesh marker
         self.meshPub = self.create_publisher(Marker, "{}/mesh".format(robot["name"]), 1)
-        self.marker = conversion.formatROSMeshMarker(mapVertices, mapTriangles, robot["name"])
+        self.marker = conversion.mesh2ROSMeshMarker(newMesh.vertex.positions.numpy(), newMesh.triangle.indices.numpy(), robot["name"])
         self.marker.header.stamp = self.get_clock().now().to_msg()
         self.meshPub.publish(self.marker)
         
@@ -192,7 +213,6 @@ class simNode(rclpy.node.Node):
         self.commandSub = self.create_subscription(Twist, "{}/cmd_vel".format(robot["name"]), self.commandCallback, 1)
         
         self.timer = self.create_timer(robot["dt"], self.timerCallback)
-        
         
     def commandCallback(self, data):
         """Stores latest cmd_vel
@@ -206,25 +226,14 @@ class simNode(rclpy.node.Node):
         
     def timerCallback(self):
         """Timer callback performing time-discrete simulation updates
-        """
-        #TODO: Refactor collision:
-        # Perform motion update regardless
-        # Store last scan
-        # Compute scan for new pose
-        # Check, wheter or not any of the ranges in the new scan is too close
-        # Send either current or last scan-pose pair again using new error
-        
-        # Required: Move adding scan error from scannerUpdate to the callback
-        # Nice for Performance: Only perform update, if travelDistance from movementUpdate is significant
-        
+        """       
         # Perform movement update
         newPose, travelDistance, rotationDistance = movementUpdate(self.robot, self.pose, self.raycastingScene, self.latestCommand)
         
         # Only perform scan update if robot has moved
         if travelDistance > 0 or rotationDistance > 0 or len(self.scan.ranges) == 0:
             newScan = scannerUpdate(self.robot, newPose, self.raycastingScene)
-        else:
-            newScan = self.scan
+        else: newScan = self.scan
         
         # Only update pose and scan if robot is not too close to a wall
         #TODO better deal with lower update rates -> partial movement based on wall distance
@@ -250,23 +259,26 @@ class simNode(rclpy.node.Node):
         scan.header.stamp = stamp
         self.scanPub.publish(scan)
         
+        # Publish visualisation of environment
+        self.marker.header.stamp = stamp
+        self.meshPub.publish(self.marker)
+        
 if __name__=="__main__":
     # Create robot
     robot = {
-        "name": "turtle1",
+        "name": "",
         "initial_pose": [0,0,0],
         "robot_base_radius": 0.1,
         "angle_min": 0.0,
         "angle_max": 2*np.pi,
         "num_scans": 360,
         "z_height": 0.2,
-        "dt": 0.01,
-        "map_file": "/app/map.yaml",
-        "point_cloud": None,
+        "dt": 0.05,
+        "map_file": "/app/map.yaml"
     }
     # Load geometry the simulation is based on
-    mapVertices, mapTriangles = mapLoader.reconstruct2dMap(robot["map_file"])
-    #TODO: Check if map_file or point_cloud is set and load map/pointcloud accordingly
+    mapVertices, mapTriangles = mapLoader.reconstruct2DMap(robot["map_file"])
+    #TODO: Check if map_file is yaml or point_cloud and load map/pointcloud accordingly
     #TODO: Pull config from ROS parameter server
     #TODO: json 2 rosparam
     rclpy.init()
