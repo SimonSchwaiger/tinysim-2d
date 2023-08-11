@@ -103,9 +103,9 @@ def o3dCloud2pcl(o3dCloud, frame_id="cloud"):
     """
     # Define position fields
     fields = [
-        PointField('x', 0, PointField.FLOAT32, 1),
-        PointField('y', 4, PointField.FLOAT32, 1),
-        PointField('z', 8, PointField.FLOAT32, 1),
+        PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+        PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+        PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
     ]
     # Create position points
     points = np.asarray(o3dCloud.points).astype(np.float64)
