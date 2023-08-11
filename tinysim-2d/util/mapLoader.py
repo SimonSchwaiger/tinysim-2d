@@ -90,8 +90,8 @@ def process2DPoints(contourPoints):
             (n,3) np.uint32 array containing triangle indices that create the polygons from mapVertices
     """
     # Create two lists of 3d coordinates in 2 z-planes
-    lowerZ = np.full((contourPoints.shape[0], 1), -0.5)
-    upperZ = np.full((contourPoints.shape[0], 1), 0.5)
+    lowerZ = np.full((contourPoints.shape[0], 1), 0.0)
+    upperZ = np.full((contourPoints.shape[0], 1), 1.0)
     # Combine the lists with alternating rows to serve as the mesh-vertices
     # https://stackoverflow.com/a/64621147
     vertices = np.ravel(
@@ -176,6 +176,30 @@ def reconstruct2DMap(inFile):
         triangles = triangles + np.full(triangles.shape, idx)
         idx += len(triangles)
         mapTriangles = np.vstack((mapTriangles, triangles)) if mapTriangles.size else triangles
+    
+    ## Add two triangles that create a ground plane
+    xmin = np.amin(mapVertices[:,0])
+    xmax = np.max(mapVertices[:,0])
+    ymin = np.amin(mapVertices[:,1])
+    ymax = np.max(mapVertices[:,1])
+    
+    # Follow the same procedure as in the loop above and adjust triangle indices based on triangle array length
+    vertices = np.array([
+        [xmin, ymin, 0.0],
+        [xmax, ymin, 0.0],
+        [xmin, ymax, 0.0],
+        [xmax, ymax, 0.0]
+    ], dtype=np.float32)
+    
+    triangles = np.array([
+        [0, 3, 1],
+        [0, 3, 2]
+    ], dtype=np.int32)
+    
+    triangles = triangles + np.full(triangles.shape, idx)
+    
+    mapVertices = np.vstack((mapVertices, vertices)) if mapVertices.size else vertices
+    mapTriangles = np.vstack((mapTriangles, triangles)) if mapTriangles.size else triangles
     
     # Make sure vertices and triangles are of correct dtype when returning
     return mapVertices.astype(np.float32), mapTriangles.astype(np.int32)
