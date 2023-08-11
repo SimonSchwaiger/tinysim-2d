@@ -10,7 +10,7 @@ import numpy.typing as npt
 import open3d as o3d
 
 import copy
-from typing import List
+from typing import List, Type, Optional
 from typing_extensions import TypedDict
 
 from util import mapLoader, conversion
@@ -70,7 +70,7 @@ robot = {
 
 class rayCreator:
     def __init__(self, sensorConfig: SensorType) -> None:
-        self.sensor: dict = None # Sensor configuration
+        self.sensor: SensorType = None # Sensor configuration
         self.mesh = None   # O3d triangleMesh containing ray directions (no typehint because of https://github.com/isl-org/Open3D/issues/3052 )
         self.loadConfig(sensorConfig)
     
@@ -132,8 +132,8 @@ class rayCreator:
 
 class sensorContainer:
     def __init__(self, robotConfig: RobotType, mapVertices: npt.ArrayLike, mapTriangles: npt.ArrayLike) -> None:
-        self.robot: dict = None # Sensor configuration
-        self.sensors = None
+        self.robot: RobotType = None # Sensor configuration
+        self.sensors: Optional[List[Type[rayCreator]]] = None
         self.raycastingScene = None
         self.mesh = None
         
@@ -258,17 +258,17 @@ def movementUpdate(pose: npt.ArrayLike, cmd_vel, dt: float):
 
 class simulationScene:
     def __init__(self, robotConfig: RobotType) -> None:
-        self.robot = robotConfig
-        self.robotPose = robot["initial_pose"]
+        self.robot: RobotType = robotConfig
+        self.robotPose: npt.ArrayLike = robot["initial_pose"]
         # Create raycasting scene and instantiate sensor container 
         mapVertices, mapTriangles = mapLoader.reconstruct2DMap(self.robot["map_file"])
-        self.sensors = sensorContainer(robot, mapVertices, mapTriangles)
+        self.sensors: Optional[Type[sensorContainer]] = sensorContainer(robot, mapVertices, mapTriangles)
         
         # Store static transforms
         self.poses = [ formatROSTransform("base_link", sensor["frame"], sensor["pose"]) for sensor in self.robot["sensors"] ]
         
-        self.cachedRayList = None
-        self.cachedtHitSections = None
+        self.cachedRayList: Optional[npt.ArrayLike] = None
+        self.cachedtHitSections: Optional[npt.ArrayLike] = None
         
     def loadConfig(self, robotConfig: RobotType) -> None:
         pass
@@ -360,6 +360,7 @@ class simNode(rclpy.node.Node):
         self.meshPub.publish(self.marker)
         
 if __name__=="__main__":
+    #TODO: Type Checking of ROS 2 Types: https://discourse.ros.org/t/python-type-checking-in-ros2/28507/3
     #TODO: Check if map_file is yaml or point_cloud and load map/pointcloud accordingly
     #TODO: Pull config from ROS parameter server: https://docs.ros.org/en/rolling/Tutorials/Beginner-Client-Libraries/Using-Parameters-In-A-Class-Python.html and http://design.ros2.org/articles/ros_parameters.html
     #TODO: json 2 rosparam
