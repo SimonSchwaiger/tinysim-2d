@@ -111,7 +111,7 @@ class rayCreator:
         """
         # Copy stored mesh (in robot frame) and rotate it to odom frame
         tmpMesh = copy.deepcopy(self.mesh)
-        tmpMesh.rotate(self.mesh.get_rotation_matrix_from_xyz([0, 0, robotPose[2]]))
+        tmpMesh.rotate(self.mesh.get_rotation_matrix_from_xyz([0, 0, robotPose[2]]), center=(0, 0, 0))
         castDirections = np.asarray(tmpMesh.vertices)
         # Translate to odom frame
         robotPosition = np.array([robotPose[0], robotPose[1], 0], dtype=float)
