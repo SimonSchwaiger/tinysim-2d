@@ -1,21 +1,20 @@
-import rclpy
-from tf2_ros import TransformBroadcaster
+import rclpy # type: ignore
+from tf2_ros import TransformBroadcaster # type: ignore
 
-from builtin_interfaces.msg import Time
-from geometry_msgs.msg import Twist, TransformStamped
-from sensor_msgs.msg import LaserScan, PointCloud2, Image
-from visualization_msgs.msg import Marker
+from builtin_interfaces.msg import Time # type: ignore
+from geometry_msgs.msg import Twist, TransformStamped # type: ignore
+from sensor_msgs.msg import LaserScan, PointCloud2, Image # type: ignore
+from visualization_msgs.msg import Marker # type: ignore
 
 import cv2
-from cv_bridge import CvBridge
+from cv_bridge import CvBridge # type: ignore
 
 import numpy as np
 import numpy.typing as npt
-import open3d as o3d
+import open3d as o3d # type: ignore
 
 import copy
-import time
-from typing import List, Tuple, Type, Optional, Union
+from typing import List, Tuple, Optional, Union
 from typing_extensions import TypedDict
 
 from util import mapLoader, conversion
@@ -85,7 +84,7 @@ robot: RobotType = {
         },
         {
             "dType": "Image", # Realsense d435i
-            "topic": "camera/depth/compressed",
+            "topic": "camera/depth/image_rect_raw",
             "frame": "camera",
             "pose": [0, 0, 0.5, 0, 0, 0],
             "resolution_horizontal": 640,
@@ -166,7 +165,7 @@ class rayCreatorLaserScan(rayCreator):
         self.mesh.rotate(self.mesh.get_rotation_matrix_from_xyz(self.sensor["pose"][3:6]))
     
     def postProcess(self, resultData) -> LaserScan:
-        """Applies 
+        """Applies post processing and formats ROS message
         """
         scan = LaserScan()
         scan.header.frame_id = self.sensor["frame"]
@@ -188,7 +187,8 @@ class rayCreatorPointCloud2(rayCreatorLaserScan):
         super().__init__(sensorConfig)
         
     def postProcess(self, resultData) -> PointCloud2:
-        # Convert ray length to point in 3d space
+        """Converts ray length to point in 3d space
+        """
         hit = np.isfinite(resultData['t_hit'])
         points = resultData["rays"][hit][:,:3] + resultData["rays"][hit][:,3:]*resultData['t_hit'][hit].reshape((-1,1))
         # Track points in o3d point cloud and convert to ros point cloud
@@ -220,7 +220,7 @@ class rayCreatorDepthCamera(rayCreator):
         self.mesh.rotate(self.mesh.get_rotation_matrix_from_xyz(self.sensor["pose"][3:6]))
     
     def postProcess(self, resultData) -> npt.NDArray:
-        """Formats ROS message from raycast result
+        """Formats image of correct size from raycast result
         """
         # Reshape from list to image and invert both axes due to camera model
         img = np.flip(np.flip(
@@ -418,8 +418,6 @@ class simNode(rclpy.node.Node):
         for idx, m in enumerate(messages):
             m.header.stamp = stamp
             self.sensorPubs[idx].publish(m)
-            
-        #self.meshPub.publish(self.marker)
         
 if __name__=="__main__":
     #TODO: Check if map_file is yaml or point_cloud and load map/pointcloud accordingly
