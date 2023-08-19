@@ -14,6 +14,7 @@ import numpy.typing as npt
 import open3d as o3d
 
 import copy
+import time
 from typing import List, Tuple, Type, Optional, Union
 from typing_extensions import TypedDict
 
@@ -49,7 +50,7 @@ RayCastResultType = TypedDict("RayCastResultType", {"t_hit": ArrayListType, "ray
 # Testrobot
 robot: RobotType = {
     "name": "",
-    "initial_pose": [0, 0, 0],
+    "initial_pose": [1, 0, np.pi/2],
     "robot_base_radius": 0.1,
     "dt": 0.1,
     "map_file": "/app/map.yaml",
@@ -88,9 +89,9 @@ robot: RobotType = {
             "frame": "camera",
             "pose": [0, 0, 0.5, 0, 0, 0],
             "resolution_horizontal": 640,
-            "resolution_vertical": 480,
+            "resolution_vertical": 360,
             "fov": 87,
-            "scaling_factor": 8,
+            "scaling_factor": 2,
             "noiseStd": 0.0,
         }
     ]
@@ -411,13 +412,14 @@ class simNode(rclpy.node.Node):
         
         for t in transforms:
             t.header.stamp = stamp
-            self.tfPub.sendTransform(t)
+        
+        self.tfPub.sendTransform(transforms)
         
         for idx, m in enumerate(messages):
             m.header.stamp = stamp
             self.sensorPubs[idx].publish(m)
             
-        self.meshPub.publish(self.marker)
+        #self.meshPub.publish(self.marker)
         
 if __name__=="__main__":
     #TODO: Check if map_file is yaml or point_cloud and load map/pointcloud accordingly
