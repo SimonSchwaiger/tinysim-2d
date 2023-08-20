@@ -110,13 +110,15 @@ class rayCreator:
         """Calculates the scan's rays based on stored sensor configuration and current robot pose
         """
         # Copy stored mesh (in robot frame) and rotate it to odom frame
+        robotPose = [robotPose[0], robotPose[1], 0, 0, 0, robotPose[2]]
+        assert len(robotPose) == 6
         tmpMesh = copy.deepcopy(self.mesh)
-        tmpMesh.rotate(self.mesh.get_rotation_matrix_from_xyz([0, 0, robotPose[2]]), center=(0, 0, 0))
+        tmpMesh.rotate(self.mesh.get_rotation_matrix_from_xyz(robotPose[3:]), center=(0, 0, 0))
         castDirections = np.asarray(tmpMesh.vertices)
         # Translate to odom frame
-        robotPosition = np.array([robotPose[0], robotPose[1], 0], dtype=float)
+        robotPosition = np.array(robotPose[:3], dtype=float)
         # Since the sensor position is relative to the robot base, compensate for sensor translation
-        sensorPosition = robotPosition + np.dot(self.sensor["pose"][:3], self.mesh.get_rotation_matrix_from_xyz([0, 0, robotPose[2]]))
+        sensorPosition = robotPosition + np.dot(self.sensor["pose"][:3], self.mesh.get_rotation_matrix_from_xyz(robotPose[3:]).T)
         # Return array consisting of ray positions (the same for all rays) and directions
         return np.hstack((np.full(castDirections.shape, sensorPosition), castDirections))
         
