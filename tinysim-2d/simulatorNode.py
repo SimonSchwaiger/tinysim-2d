@@ -116,11 +116,7 @@ class rayCreator:
         # Translate to odom frame
         robotPosition = np.array([robotPose[0], robotPose[1], 0], dtype=float)
         # Since the sensor position is relative to the robot base, compensate for sensor translation
-        sensorPosition = robotPosition + np.array([
-            np.cos(robotPose[2])*self.sensor["pose"][0] + np.sin(robotPose[2])*self.sensor["pose"][1], #TODO: test y translation, generalise to 3d transform
-            np.sin(robotPose[2])*self.sensor["pose"][0] + np.cos(robotPose[2])*self.sensor["pose"][1],
-            self.sensor["pose"][2]
-        ], dtype=float)
+        sensorPosition = robotPosition + np.dot(self.sensor["pose"][:3], self.mesh.get_rotation_matrix_from_xyz([0, 0, robotPose[2]]))
         # Return array consisting of ray positions (the same for all rays) and directions
         return np.hstack((np.full(castDirections.shape, sensorPosition), castDirections))
         
@@ -252,7 +248,7 @@ def rayCreatorFactory(sensorConfig) -> rayCreator:
     return switchTypes[sensorConfig["dType"]](sensorConfig)
 
 def formatROSTransform(frame: str, childFrame: str, pose: ArrayListType, stamp: Optional[Time]=None) -> TransformStamped:
-    """
+    """Formats a Transformstamped message from frame names and a pose in form x, y, z, r, p, y
     """
     t = TransformStamped()
     t.header.frame_id = frame
